@@ -1,0 +1,18 @@
+[
+  {
+    "id": "adsl_high",
+    "label": "ADSL high expression (Cubuk et al. 2025)",
+    "file": "ADSL_high.VEM.tsv"
+  },
+  {
+    "id": "adsl_low",
+    "label": "ADSL low expression (Cubuk et al. 2025)",
+    "file": "ADSL_low.VEM.tsv"
+  },
+  {
+    "id": "parkin_pSer65Ub",
+    "label": "PRKN (Aslanzadeh et al. 2026)",
+    "file": "Parkin_Vahid.csv",
+    "score_col": "variant_score_pSer65Ub"
+  }
+]

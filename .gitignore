@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+*.VEM.tsv
+!examples/*.VEM.tsv
+*.dict.tsv
+*.pdf
