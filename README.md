@@ -6,13 +6,40 @@ MAVEpolish uses dictionary learning to reconstruct variant effect maps (VEMs), p
 
 ## Installation
 
+Requires Python 3.9+.
+
 ```
 git clone https://github.com/gkudla/mavepolish.git
 cd mavepolish
+pip install .
+```
+
+This installs `mavepolish`, `to_vem`, and `mavepolish-web` commands that work in any new terminal window.
+
+<details>
+<summary>Optional: install in a virtual environment</summary>
+
+If you prefer to keep MAVEpolish isolated from your system Python:
+
+```
+cd mavepolish
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate   # run this each time you open a new terminal
+pip install .
+```
+
+</details>
+
+<details>
+<summary>For developers</summary>
+
+Use an editable install so code changes take effect immediately:
+
+```
 pip install -e .
 ```
+
+</details>
 
 ## Usage
 

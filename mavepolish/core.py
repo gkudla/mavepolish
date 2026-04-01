@@ -49,21 +49,15 @@ def kde_wt_peak(values):
     return float(x_grid[top2_peaks].max())
 
 
-def handle_missing_values(dataframe, method="Zeros"):
+def handle_missing_values(dataframe):
     """
-    Fill missing values in the dataframe using one of the specified strategies:
-    - "Mean": fill NaNs with row-wise mean
-    - "Median": fill NaNs with row-wise median
-    - "Zeros": fill all NaNs with 0
+    Fill missing values using a hybrid strategy:
+    - Ter column (if present): fill with column mean (stop codons have a distinct pattern)
+    - All other columns: fill with row-wise mean (missense AAs correlate within position)
     """
-    if method == "Mean":
-        dataframe = dataframe.apply(lambda row: row.fillna(row.mean()), axis=1)
-    elif method == "Median":
-        dataframe = dataframe.apply(lambda row: row.fillna(row.median()), axis=1)
-    elif method == "Zeros":
-        dataframe = dataframe.fillna(0)
-    else:
-        raise ValueError(f"Unknown NaN handling method: {method}")
+    if 'Ter' in dataframe.columns and dataframe['Ter'].isna().any():
+        dataframe['Ter'] = dataframe['Ter'].fillna(dataframe['Ter'].mean())
+    dataframe = dataframe.apply(lambda row: row.fillna(row.mean()), axis=1)
     # If any rows are still all-NaN (e.g. originally completely missing), fill them with 0s
     dataframe.loc[dataframe.isna().all(axis=1)] = 0
     return dataframe
@@ -122,7 +116,7 @@ def load_pretrained_model(model_path):
     return dl.components_, list(dl.feature_names_in_)
 
 
-def _preprocess_vem(vem_df, nan_handling='Mean', expected_cols=None):
+def _preprocess_vem(vem_df, expected_cols=None):
     """Shared preprocessing: separate wt_aa, center, KDE-fill WT diagonal,
     reorder columns, fill remaining NaN.
 
@@ -181,14 +175,14 @@ def _preprocess_vem(vem_df, nan_handling='Mean', expected_cols=None):
         Y_nan_mask = Y_nan_mask.reindex_like(Y)
 
     # --- Fill remaining NaN values ---
-    Y = handle_missing_values(Y, method=nan_handling)
+    Y = handle_missing_values(Y)
 
     Y_original_raw = Y_original_raw.reindex(columns=Y.columns)
 
     return Y, Y_original_raw, Y_nan_mask, wt_aa, Ymean_global, kde_wt
 
 
-def run_pretrained(vem_df, model_path, nan_handling='Mean', n_components=6):
+def run_pretrained(vem_df, model_path, n_components=6):
     """Fast reconstruction using a pretrained dictionary model.
 
     Skips dictionary training — only does OMP sparse coding + error computation.
@@ -196,7 +190,7 @@ def run_pretrained(vem_df, model_path, nan_handling='Mean', n_components=6):
     data_dict, expected_cols = load_pretrained_model(model_path)
 
     Y, Y_original_raw, Y_nan_mask, wt_aa, Ymean_global, kde_wt = \
-        _preprocess_vem(vem_df, nan_handling, expected_cols=expected_cols)
+        _preprocess_vem(vem_df, expected_cols=expected_cols)
 
     # --- Row norms ---
     row_norms = np.sum(Y ** 2, axis=1)
@@ -247,13 +241,12 @@ def run_pretrained(vem_df, model_path, nan_handling='Mean', n_components=6):
     }
 
 
-def run_mavepolish(vem_df, nan_handling='Mean', target_iqr=1.0, n_components=6):
+def run_mavepolish(vem_df, target_iqr=1.0, n_components=6):
     """
     Full MavePolish pipeline: preprocess VEM, train dictionary + PCA, reconstruct, return results.
 
     Args:
         vem_df:        DataFrame from to_vem() (includes wt_aa column)
-        nan_handling:  'Mean' | 'Median' | 'Zeros'
         target_iqr:    rescaling target for dictionary fitting (default 1.0)
         n_components:  number of dictionary/PCA components (default 6)
 
@@ -274,7 +267,7 @@ def run_mavepolish(vem_df, nan_handling='Mean', target_iqr=1.0, n_components=6):
             'columns'           list — ordered amino acid column names
     """
     Y, Y_original_raw, Y_nan_mask, wt_aa, Ymean_global, kde_wt = \
-        _preprocess_vem(vem_df, nan_handling)
+        _preprocess_vem(vem_df)
 
     # --- Row norms for error computation ---
     row_norms = np.sum(Y ** 2, axis=1)

@@ -205,21 +205,6 @@ app.layout = html.Div([
             # Options row
             html.Div([
                 html.Div([
-                    html.Label("NaN handling:", style={'fontWeight': 'bold', 'marginBottom': '4px'}),
-                    dcc.Dropdown(
-                        id='nan-handling',
-                        options=[
-                            {'label': 'Row mean', 'value': 'Mean'},
-                            {'label': 'Row median', 'value': 'Median'},
-                            {'label': 'Zeros', 'value': 'Zeros'},
-                        ],
-                        value='Mean',
-                        clearable=False,
-                        style={'width': '180px'},
-                    ),
-                ], style={'marginRight': '30px'}),
-
-                html.Div([
                     html.Label("Score column:", style={'fontWeight': 'bold', 'marginBottom': '4px'}),
                     dcc.Dropdown(
                         id='score-col-dropdown',
@@ -445,10 +430,10 @@ def load_example(dataset_id):
 # ---------------------------------------------------------------------------
 # Callback: Run analysis → produce results
 # ---------------------------------------------------------------------------
-def _run_selftrained_bg(run_id, vem_df, nan_handling):
+def _run_selftrained_bg(run_id, vem_df):
     """Background thread: run full self-trained pipeline, store results."""
     try:
-        results = run_mavepolish(vem_df, nan_handling=nan_handling)
+        results = run_mavepolish(vem_df)
         serialised = {
             'dict_recon': results['dict_recon'].to_json(),
             'pca_recon': results['pca_recon'].to_json(),
@@ -482,11 +467,10 @@ def _run_selftrained_bg(run_id, vem_df, nan_handling):
     Output('recon-method', 'value', allow_duplicate=True),
     Input('run-button', 'n_clicks'),
     State('uploaded-file-store', 'data'),
-    State('nan-handling', 'value'),
     State('score-col-dropdown', 'value'),
     prevent_initial_call=True,
 )
-def run_analysis(n_clicks, file_store, nan_handling, score_col):
+def run_analysis(n_clicks, file_store, score_col):
     hide = {'display': 'none'}
     initial_recon_options = [
         {'label': 'Pretrained Dictionary', 'value': 'pretrained_recon'},
@@ -512,14 +496,14 @@ def run_analysis(n_clicks, file_store, nan_handling, score_col):
         vem_df = to_vem(tmp_path, score_col_hint=score_col)
 
         # Step 2: Fast pretrained reconstruction
-        results = run_pretrained(vem_df, PRETRAINED_MODEL_PATH, nan_handling=nan_handling)
+        results = run_pretrained(vem_df, PRETRAINED_MODEL_PATH)
 
         # Step 3: Launch self-trained in background
         import uuid
         run_id = str(uuid.uuid4())
         bg_thread = threading.Thread(
             target=_run_selftrained_bg,
-            args=(run_id, vem_df.copy(), nan_handling),
+            args=(run_id, vem_df.copy()),
             daemon=True,
         )
         bg_thread.start()
@@ -541,7 +525,6 @@ def run_analysis(n_clicks, file_store, nan_handling, score_col):
             'global_mean': results['global_mean'],
             'wt_aa': results['wt_aa'].to_json() if results['wt_aa'] is not None else None,
             'columns': results['columns'],
-            'nan_handling': nan_handling,
         }
 
         # Auto-detect color range and center
@@ -925,10 +908,9 @@ def build_heatmaps_list(store, zmin, zmax, wt_score=None, recon_key='pretrained_
     center = wt_score if wt_score is not None else store.get('center_val', 0)
     eff_zmin, eff_zmax = symmetric_color_range(zmin, zmax, center)
 
-    # Compute per-row completeness for reconstruction masking:
-    # blank out rows (positions) with < 30% original data
-    row_completeness = (~nan_mask).sum(axis=1) / nan_mask.shape[1]
-    sparse_rows = row_completeness < 0.30
+    # Blank positions with <= 1 measured value in reconstruction panels
+    row_measured = (~nan_mask).sum(axis=1)
+    sparse_rows = row_measured <= 1
 
     for row_idx, (key, title, mask_nan) in enumerate(configs, start=1):
         data = pd.read_json(io.StringIO(store[key]))
@@ -938,7 +920,7 @@ def build_heatmaps_list(store, zmin, zmax, wt_score=None, recon_key='pretrained_
             # Original: show only measured values
             display_data[nan_mask] = np.nan
         else:
-            # Reconstruction: show all data, but blank sparse rows (<30% original)
+            # Reconstruction: show all data, but blank positions with <= 1 data point
             for pos in display_data.index:
                 if sparse_rows.get(pos, False):
                     display_data.loc[pos, :] = np.nan

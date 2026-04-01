@@ -89,12 +89,22 @@ def plot_vem_heatmaps(original, dict_recon, pca_recon, naive_recon,
     errors = [None, err_dict, err_pca, err_naive]
 
     fig, axes = plt.subplots(4, 1, figsize=(fig_width, fig_height))
-    for ax, data, title, err in zip(axes,
+    # Blank positions with <= 1 measured value in reconstruction panels
+    row_measured = (~nan_mask).sum(axis=1)
+    sparse_rows = row_measured <= 1
+
+    for ax, data, title, err, mask_nan in zip(axes,
         [original, dict_recon, pca_recon, naive_recon],
         ['Original data', 'Dictionary model', 'PCA model', 'Naive mean model'],
-        errors):
+        errors,
+        [True, False, False, False]):
         data_plot = data.copy()
-        data_plot[nan_mask] = np.nan
+        if mask_nan:
+            data_plot[nan_mask] = np.nan
+        else:
+            for pos in data_plot.index:
+                if sparse_rows.get(pos, False):
+                    data_plot.loc[pos, :] = np.nan
         sns.heatmap(data_plot.T, annot=False, cmap=cmap, center=center_val,
                     vmin=Ymin, vmax=Ymax, ax=ax,
                     square=True,
@@ -117,7 +127,7 @@ def plot_vem_heatmaps(original, dict_recon, pca_recon, naive_recon,
 # Process a single VEM file
 # ---------------------------------------------------------------------------
 
-def process_file(file_path, model_path=None, nan_handling='Mean',
+def process_file(file_path, model_path=None,
                  target_iqr=1.0, out_dir=None, do_plot=True):
     """Run analysis on one VEM file and save outputs."""
 
@@ -134,7 +144,7 @@ def process_file(file_path, model_path=None, nan_handling='Mean',
 
     if model_path:
         # --- Pretrained mode ---
-        results = run_pretrained(vem_df, model_path, nan_handling=nan_handling)
+        results = run_pretrained(vem_df, model_path)
 
         print(f'{model_path}\t{file_path}\tReconstruction_error_dict\t'
               f'{results["err_pretrained"]:.5f}')
@@ -150,7 +160,7 @@ def process_file(file_path, model_path=None, nan_handling='Mean',
 
     else:
         # --- Self-trained mode ---
-        results = run_mavepolish(vem_df, nan_handling=nan_handling,
+        results = run_mavepolish(vem_df,
                                  target_iqr=target_iqr)
 
         print(f'{file_path}\t{file_path}\tReconstruction_error_dict\t'
@@ -197,9 +207,6 @@ def main():
     print('')
 
     parser = argparse.ArgumentParser(description='MAVEpolish analysis.')
-    parser.add_argument('--nan_handling', type=str, default='Mean',
-                        choices=['Mean', 'Median', 'Zeros'],
-                        help='Method for handling missing values')
     parser.add_argument('-t', '--training_file', type=str, required=False,
                         help='Path to the training file in VEM.tsv format.')
     parser.add_argument('-m', '--model_file', type=str, required=False,
@@ -225,7 +232,6 @@ def main():
 
     # Print parameter summary
     print('Parameters:')
-    print(f'  nan_handling:  {args.nan_handling}')
     if args.model_file:
         print(f'  model:         {args.model_file} (pretrained)')
     else:
@@ -249,7 +255,6 @@ def main():
         process_file(
             fpath,
             model_path=args.model_file,
-            nan_handling=args.nan_handling,
             target_iqr=args.target_iqr,
             out_dir=args.output_dir,
             do_plot=args.plot,

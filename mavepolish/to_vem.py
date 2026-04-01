@@ -5,13 +5,12 @@ to_vem.py — Convert MAVE score files of any supported format to VEM.tsv (wide 
 
 Supported input formats
 -----------------------
-1. VEM.tsv          Wide matrix (Position × amino acid, 3-letter headers) — passed through unchanged
-2. MaveDB CSV/TSV   hgvs_pro column with HGVS protein notation (p.Met1Ala, p.Met1Ter …)
-3. Pre-parsed TSV   Columns: Position, Amino_Acid_2, score  (output of ADSLcsv2tsv.sh)
-4. Long TSV         Columns: Position, Amino_Acid, score    (output of VEM2tsv.py)
-5. Simple 1-letter  var or aa_substitutions column, 1-letter codes (M1A, M1*, M1=)
-6. Wide 1-letter    Wide matrix with 1-letter AA column headers (e.g. GBA1_VEM_R1.csv);
-                    extra columns (wt_aa, median_score, mean_score …) are ignored
+1. VEM.tsv          Wide matrix (Position x amino acid, 3-letter headers) -- passed through unchanged
+2. MaveDB CSV/TSV   hgvs_pro column with HGVS protein notation (p.Met1Ala, p.Met1Ter ...)
+3. Simple 1-letter  Variant/var/aa_substitutions column, 1-letter codes (M1A, M1*, M1=)
+4. Wide 1-letter    Wide matrix with 1-letter AA column headers;
+                    extra columns (wt_aa, median_score, mean_score ...) are ignored
+5. Headerless       No header; first column looks like a variant (E2C), second is numeric
 
 Format is auto-detected from column names; separator (comma / tab) is auto-detected.
 """
@@ -75,45 +74,35 @@ def detect_format(df):
     Infer the input format from column names.
 
     Detection priority (most specific first):
-      vem_wide        — Position + only 3-letter AA column names
-      vem_wide_1letter— position (case-insensitive) + 1-letter AA column names
-      preparsed_2     — Amino_Acid_2 + Position  (ADSLcsv2tsv.sh output)
-      preparsed       — Amino_Acid + Position     (VEM2tsv.py output)
-      hgvs            — hgvs_pro column           (MaveDB CSV/TSV)
-      simple          — var or aa_substitutions   (Parkin / ADSL 1-letter)
-      headerless      — no header; col 1 looks like variant (E2C), col 2 numeric
+      vem_wide         — Position + only 3-letter AA column names
+      vem_wide_1letter — position (case-insensitive) + 1-letter AA column names
+      hgvs             — hgvs_pro column (MaveDB CSV/TSV)
+      simple           — Variant, var, or aa_substitutions (1-letter codes)
+      headerless       — no header; col 1 looks like variant (E2C), col 2 numeric
     """
     cols = set(df.columns)
     first_col = df.columns[0]
 
-    # Format 1: VEM wide — first column is Position, all others are 3-letter AA names (+ optional wt_aa)
+    # VEM wide — first column is Position, all others are 3-letter AA names (+ optional wt_aa)
     if first_col == 'Position' and cols - {'Position', 'wt_aa'} <= THREE_LETTER_AAS:
         return 'vem_wide'
 
-    # Format 6: wide 1-letter — first column is position (any case),
+    # Wide 1-letter — first column is position (any case),
     # and at least half the remaining columns are 1-letter AA codes
     if first_col.lower() == 'position':
         aa_cols = [c for c in df.columns[1:] if c in ONE_LETTER_AAS]
         if len(aa_cols) >= 10:   # enough 1-letter AA columns to be confident
             return 'vem_wide_1letter'
 
-    # Format 3: pre-parsed TSV produced by ADSLcsv2tsv.sh → variantEffectMap.py
-    if 'Amino_Acid_2' in cols and 'Position' in cols:
-        return 'preparsed_2'
-
-    # Format 4: long TSV produced by VEM2tsv.py
-    if 'Amino_Acid' in cols and 'Position' in cols:
-        return 'preparsed'
-
-    # Format 2: MaveDB CSV/TSV with HGVS protein notation
+    # MaveDB CSV/TSV with HGVS protein notation
     if 'hgvs_pro' in cols:
         return 'hgvs'
 
-    # Format 5: simple 1-letter notation (Parkin supplementary, ADSL)
-    if 'var' in cols or 'aa_substitutions' in cols:
+    # Simple 1-letter notation (var/aa_substitutions/Variant column)
+    if 'var' in cols or 'aa_substitutions' in cols or 'Variant' in cols:
         return 'simple'
 
-    # Format 7: headerless file — first "column name" looks like a variant (e.g. E2C, M1A),
+    # Headerless file — first "column name" looks like a variant (e.g. E2C, M1A),
     # second looks like a score (numeric). The file has no header row.
     if (re.match(r'^[A-Z]\d+[A-Z*]$', first_col)
             and _looks_numeric(df.columns[1])):
@@ -122,7 +111,7 @@ def detect_format(df):
     raise ValueError(
         f"Cannot detect format from columns: {list(df.columns)}\n"
         "Expected one of: Position + AA headers, hgvs_pro, "
-        "Amino_Acid_2 + Position, Amino_Acid + Position, var, aa_substitutions, "
+        "var/aa_substitutions/Variant, "
         "or wide matrix with 1-letter AA headers."
     )
 
@@ -133,9 +122,8 @@ def detect_format(df):
 
 # Columns that are never score columns
 _NON_SCORE_COLS = {
-    'Position', 'Amino_Acid', 'Amino_Acid_1', 'Amino_Acid_2',
-    'accession', 'hgvs_pro', 'hgvs_nt', 'hgvs_splice',
-    'var', 'aa_substitutions', 'WT',
+    'Position', 'accession', 'hgvs_pro', 'hgvs_nt', 'hgvs_splice',
+    'var', 'aa_substitutions', 'Variant', 'WT',
 }
 
 def find_score_col(df, hint=None):
@@ -245,12 +233,12 @@ def parse_hgvs(df, score_col):
 def parse_simple(df, score_col):
     """
     Parse simple 1-letter notation: M1A, M1*, M1=
-    Column may be named 'var' (Parkin supplementary) or 'aa_substitutions' (ADSL).
+    Column may be named 'var', 'aa_substitutions', or 'Variant'.
     Collects wild-type scores from WT rows, synonymous (M1=), and ref==alt (M1M).
 
     Returns (df_long, wt_info) — same structure as parse_hgvs.
     """
-    var_col = 'var' if 'var' in df.columns else 'aa_substitutions'
+    var_col = next(c for c in ('var', 'aa_substitutions', 'Variant') if c in df.columns)
     rows = []
     n_wt = n_syn = n_invalid = 0
     wt_info = {'p_equals': [], 'synonymous': [], 'pos_to_ref': {}}
@@ -438,7 +426,7 @@ def to_vem(file_path, score_col_hint=None, wt_score_override=None):
     fmt = detect_format(df)
     print(f"  Detected format : {fmt}")
 
-    # --- Format 1: already wide (3-letter headers), just reorder columns and return ---
+    # --- Already wide (3-letter headers), just reorder columns and return ---
     if fmt == 'vem_wide':
         df = df.set_index('Position')
         has_wt_aa = 'wt_aa' in df.columns
@@ -449,7 +437,7 @@ def to_vem(file_path, score_col_hint=None, wt_score_override=None):
             df.insert(0, 'wt_aa', wt_aa_col)
         return df
 
-    # --- Format 6: wide matrix with 1-letter AA headers ---
+    # --- Wide matrix with 1-letter AA headers ---
     if fmt == 'vem_wide_1letter':
         df = df.rename(columns={df.columns[0]: 'Position'})
         df = df.set_index('Position')
@@ -466,7 +454,7 @@ def to_vem(file_path, score_col_hint=None, wt_score_override=None):
                 df[col] = float('nan')
         return df.reindex(columns=DESIRED_COL_ORDER)
 
-    # --- Format 7: headerless — re-read without header, use col 0 as 'var', col 1 as 'score' ---
+    # --- Headerless — re-read without header, use col 0 as 'var', col 1 as 'score' ---
     if fmt == 'headerless':
         df = pd.read_csv(file_path, sep=sep, header=None)
         df = df.rename(columns={df.columns[0]: 'var', df.columns[1]: 'score'})
@@ -483,18 +471,6 @@ def to_vem(file_path, score_col_hint=None, wt_score_override=None):
 
     if fmt == 'hgvs':
         df_long, wt_info = parse_hgvs(df, score_col)
-
-    elif fmt == 'preparsed_2':
-        # ADSLcsv2tsv.sh output: Position, Amino_Acid_2 already in 3-letter
-        df_long = df[['Position', 'Amino_Acid_2', score_col]].copy()
-        df_long.columns = ['Position', 'Amino_Acid', 'score']
-        df_long['Position'] = df_long['Position'].astype(int)
-
-    elif fmt == 'preparsed':
-        # VEM2tsv.py output: Position, Amino_Acid already in 3-letter
-        df_long = df[['Position', 'Amino_Acid', score_col]].copy()
-        df_long.columns = ['Position', 'Amino_Acid', 'score']
-        df_long['Position'] = df_long['Position'].astype(int)
 
     elif fmt == 'simple':
         df_long, wt_info = parse_simple(df, score_col)
