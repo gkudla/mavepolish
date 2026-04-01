@@ -320,9 +320,8 @@ def _process_file(text, filename):
 
         if fmt not in ('headerless', 'vem_wide', 'vem_wide_1letter'):
             _NON_SCORE = {
-                'Position', 'Amino_Acid', 'Amino_Acid_1', 'Amino_Acid_2',
-                'accession', 'hgvs_pro', 'hgvs_nt', 'hgvs_splice',
-                'var', 'aa_substitutions', 'WT', 'position', 'wt_aa',
+                'Position', 'accession', 'hgvs_pro', 'hgvs_nt', 'hgvs_splice',
+                'var', 'aa_substitutions', 'Variant', 'WT', 'position', 'wt_aa',
             }
             numeric_cols = [
                 c for c in df.columns
@@ -366,62 +365,55 @@ def _process_file(text, filename):
     Output('run-button', 'style'),
     Output('uploaded-file-store', 'data'),
     Input('upload-data', 'contents'),
+    Input('example-dropdown', 'value'),
     State('upload-data', 'filename'),
     prevent_initial_call=True,
 )
-def handle_upload(contents, filename):
-    if contents is None:
-        return '', [], None, True, BUTTON_DISABLED_STYLE, None
+def handle_data_input(upload_contents, example_id, upload_filename):
+    """Unified callback for both file upload and example selection."""
+    trigger = callback_context.triggered[0]['prop_id'] if callback_context.triggered else None
 
-    content_type, content_string = contents.split(',')
+    # --- Example dataset selected ---
+    if trigger == 'example-dropdown.value':
+        if example_id is None:
+            raise dash.exceptions.PreventUpdate
+
+        dataset = next((d for d in EXAMPLE_DATASETS if d['id'] == example_id), None)
+        if dataset is None:
+            raise dash.exceptions.PreventUpdate
+
+        filepath = os.path.join(EXAMPLES_DIR, dataset['file'])
+        with open(filepath, 'r') as f:
+            text = f.read()
+
+        try:
+            info, score_options, default_score, store_data = _process_file(text, dataset['file'])
+            if dataset.get('score_col') and any(
+                o['value'] == dataset['score_col'] for o in score_options
+            ):
+                default_score = dataset['score_col']
+            return info, score_options, default_score, False, BUTTON_STYLE, store_data
+        except Exception as e:
+            info = html.Div([
+                html.Span("Error loading example: ", style={'color': 'red', 'fontWeight': 'bold'}),
+                html.Span(str(e)),
+            ])
+            return info, [], None, True, BUTTON_DISABLED_STYLE, None
+
+    # --- File uploaded ---
+    if upload_contents is None:
+        raise dash.exceptions.PreventUpdate
+
+    content_type, content_string = upload_contents.split(',')
     decoded = base64.b64decode(content_string)
     text = decoded.decode('utf-8')
 
     try:
-        info, score_options, default_score, store_data = _process_file(text, filename)
+        info, score_options, default_score, store_data = _process_file(text, upload_filename)
         return info, score_options, default_score, False, BUTTON_STYLE, store_data
     except Exception as e:
         info = html.Div([
-            html.Span(f"Error reading {filename}: ", style={'color': 'red', 'fontWeight': 'bold'}),
-            html.Span(str(e)),
-        ])
-        return info, [], None, True, BUTTON_DISABLED_STYLE, None
-
-
-@app.callback(
-    Output('upload-info', 'children', allow_duplicate=True),
-    Output('score-col-dropdown', 'options', allow_duplicate=True),
-    Output('score-col-dropdown', 'value', allow_duplicate=True),
-    Output('run-button', 'disabled', allow_duplicate=True),
-    Output('run-button', 'style', allow_duplicate=True),
-    Output('uploaded-file-store', 'data', allow_duplicate=True),
-    Input('example-dropdown', 'value'),
-    prevent_initial_call=True,
-)
-def load_example(dataset_id):
-    if dataset_id is None:
-        raise dash.exceptions.PreventUpdate
-
-    # Look up dataset in manifest
-    dataset = next((d for d in EXAMPLE_DATASETS if d['id'] == dataset_id), None)
-    if dataset is None:
-        raise dash.exceptions.PreventUpdate
-
-    filepath = os.path.join(EXAMPLES_DIR, dataset['file'])
-    with open(filepath, 'r') as f:
-        text = f.read()
-
-    try:
-        info, score_options, default_score, store_data = _process_file(text, dataset['file'])
-        # Use manifest-specified score column if available
-        if dataset.get('score_col') and any(
-            o['value'] == dataset['score_col'] for o in score_options
-        ):
-            default_score = dataset['score_col']
-        return info, score_options, default_score, False, BUTTON_STYLE, store_data
-    except Exception as e:
-        info = html.Div([
-            html.Span("Error loading example: ", style={'color': 'red', 'fontWeight': 'bold'}),
+            html.Span(f"Error reading {upload_filename}: ", style={'color': 'red', 'fontWeight': 'bold'}),
             html.Span(str(e)),
         ])
         return info, [], None, True, BUTTON_DISABLED_STYLE, None
