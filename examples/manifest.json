@@ -10,6 +10,12 @@
     "file": "ADSL_low.VEM.tsv"
   },
   {
+    "id": "parkin_pSer65Ub",
+    "label": "PRKN (Aslanzadeh et al. 2026)",
+    "file": "Parkin_Vahid.csv",
+    "score_col": "variant_score_pSer65Ub"
+  },
+  {
     "id": "insr",
     "label": "INSR (Aslanzadeh et al. 2025)",
     "file": "INSR.tsv",
