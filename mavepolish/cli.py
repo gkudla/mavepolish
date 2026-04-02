@@ -19,7 +19,7 @@ import seaborn as sns
 from scipy.signal import find_peaks
 from scipy.stats import gaussian_kde
 
-from mavepolish.core import run_pretrained, run_mavepolish
+from mavepolish.core import run_pretrained, run_mavepolish, save_model
 from mavepolish.to_vem import to_vem
 
 
@@ -128,7 +128,8 @@ def plot_vem_heatmaps(original, dict_recon, pca_recon, naive_recon,
 # ---------------------------------------------------------------------------
 
 def process_file(file_path, model_path=None,
-                 target_iqr=1.0, out_dir=None, do_plot=True):
+                 target_iqr=1.0, out_dir=None, do_plot=True,
+                 save_preprocessed=False, save_model_path=None):
     """Run analysis on one VEM file and save outputs."""
 
     # Read VEM file
@@ -177,6 +178,18 @@ def process_file(file_path, model_path=None,
                                       index_label='Position')
         print(f'Saved: {dict_path}')
 
+        # Save preprocessed matrix (centered, KDE-filled, NaN-filled, IQR-normalized)
+        if save_preprocessed:
+            prep_path = os.path.join(out_dir, f'{base_name}.preprocessed.tsv')
+            results['preprocessed'].to_csv(prep_path, sep='\t',
+                                            index_label='Position')
+            print(f'Saved: {prep_path}')
+
+        # Save trained dictionary model
+        if save_model_path:
+            save_model(results['dict_learner'], save_model_path)
+            print(f'Saved: {save_model_path}')
+
         if do_plot:
             original = results['original']
             nan_mask = results['nan_mask']
@@ -221,6 +234,10 @@ def main():
                         help='Disable saving plot files')
     parser.add_argument('--target_iqr', type=float, default=1.0,
                         help='Target IQR for rescaling training data (default: 1.0)')
+    parser.add_argument('--save_preprocessed', action='store_true',
+                        help='Save the preprocessed (centered, IQR-normalized) matrix as a TSV')
+    parser.add_argument('--save_model', type=str, required=False,
+                        help='Save the trained dictionary model to a .pkl file (self-trained mode only)')
     parser.set_defaults(plot=True)
     args = parser.parse_args()
 
@@ -258,6 +275,8 @@ def main():
             target_iqr=args.target_iqr,
             out_dir=args.output_dir,
             do_plot=args.plot,
+            save_preprocessed=args.save_preprocessed,
+            save_model_path=args.save_model,
         )
 
 

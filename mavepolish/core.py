@@ -89,14 +89,13 @@ def reorder_amino_acid_columns(X):
 def determine_rescaling_factor(X, target_iqr=1.0):
     """
     Determine a rescaling factor that brings the data IQR to target_iqr.
-    Scales up only (factor >= 1).
     """
     q1 = X.stack().quantile(0.25)
     q3 = X.stack().quantile(0.75)
     iqr = q3 - q1
     if iqr == 0:
         return 1.0
-    return max(1.0, target_iqr / iqr)
+    return target_iqr / iqr
 
 
 def rec_error(Y_hat, Y, valid_rows, row_norms):
@@ -114,6 +113,12 @@ def load_pretrained_model(model_path):
         model_data = pickle.load(f)
     dl = model_data['model']
     return dl.components_, list(dl.feature_names_in_)
+
+
+def save_model(dict_learner, model_path):
+    """Save a trained DictionaryLearning model to a .pkl file."""
+    with open(model_path, 'wb') as f:
+        pickle.dump({'model': dict_learner}, f)
 
 
 def _preprocess_vem(vem_df, expected_cols=None):
@@ -331,6 +336,7 @@ def run_mavepolish(vem_df, target_iqr=1.0, n_components=6):
 
     return {
         'original': Y_original_raw,
+        'preprocessed': X_scaled,
         'dict_recon': Y_hat_orig,
         'pca_recon': Y_pca_hat_orig,
         'naive_recon': Y_mean_hat_orig,
@@ -341,6 +347,7 @@ def run_mavepolish(vem_df, target_iqr=1.0, n_components=6):
         'global_mean': float(Ymean_global),
         'n_iterations': n_iterations,
         'rescaling_factor': float(X_scale),
+        'dict_learner': dict_learner,
         'wt_aa': wt_aa,
         'columns': list(Y.columns),
         'kde_wt': float(kde_wt + Ymean_global) if kde_wt is not None else None,
