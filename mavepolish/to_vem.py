@@ -69,15 +69,40 @@ def _looks_numeric(s):
         return False
 
 
+def _sniff_variant_column(df, n_probe=20):
+    """Scan first n_probe rows of each column to find one containing variant
+    notation.  Returns (col_name, fmt) or (None, None).
+
+    Recognised patterns:
+      hgvs   — p.Met1Ala, p.Ala103Ter, p.= (3-letter HGVS protein)
+      simple — M1A, A103T, M1* (1-letter substitution codes)
+    """
+    hgvs_re   = re.compile(r'^p\.([A-Z][a-z]{2}\d+[A-Z][a-z]{2}|[A-Z][a-z]{2}\d+=|=)$')
+    simple_re = re.compile(r'^[A-Z]\d+[A-Z*=]$')
+
+    for col in df.columns:
+        vals = df[col].dropna().astype(str).head(n_probe)
+        if len(vals) == 0:
+            continue
+        n_hgvs   = sum(1 for v in vals if hgvs_re.match(v.strip()))
+        n_simple = sum(1 for v in vals if simple_re.match(v.strip()))
+        if n_hgvs >= len(vals) * 0.5:
+            return col, 'hgvs'
+        if n_simple >= len(vals) * 0.5:
+            return col, 'simple'
+    return None, None
+
+
 def detect_format(df):
     """
-    Infer the input format from column names.
+    Infer the input format from column names, falling back to content
+    inspection when column names are non-standard.
 
     Detection priority (most specific first):
       vem_wide         — Position + only 3-letter AA column names
       vem_wide_1letter — position (case-insensitive) + 1-letter AA column names
-      hgvs             — hgvs_pro column (MaveDB CSV/TSV)
-      simple           — Variant, var, or aa_substitutions (1-letter codes)
+      hgvs             — hgvs_pro column, or any column with HGVS values
+      simple           — var/aa_substitutions/Variant, or any column with X###Y values
       headerless       — no header; col 1 looks like variant (E2C), col 2 numeric
     """
     cols = set(df.columns)
@@ -85,28 +110,34 @@ def detect_format(df):
 
     # VEM wide — first column is Position, all others are 3-letter AA names (+ optional wt_aa)
     if first_col == 'Position' and cols - {'Position', 'wt_aa'} <= THREE_LETTER_AAS:
-        return 'vem_wide'
+        return 'vem_wide', None
 
     # Wide 1-letter — first column is position (any case),
     # and at least half the remaining columns are 1-letter AA codes
     if first_col.lower() == 'position':
         aa_cols = [c for c in df.columns[1:] if c in ONE_LETTER_AAS]
         if len(aa_cols) >= 10:   # enough 1-letter AA columns to be confident
-            return 'vem_wide_1letter'
+            return 'vem_wide_1letter', None
 
-    # MaveDB CSV/TSV with HGVS protein notation
+    # MaveDB CSV/TSV with HGVS protein notation — known column name
     if 'hgvs_pro' in cols:
-        return 'hgvs'
+        return 'hgvs', 'hgvs_pro'
 
-    # Simple 1-letter notation (var/aa_substitutions/Variant column)
+    # Simple 1-letter notation — known column names
     if 'var' in cols or 'aa_substitutions' in cols or 'Variant' in cols:
-        return 'simple'
+        return 'simple', None
 
     # Headerless file — first "column name" looks like a variant (e.g. E2C, M1A),
     # second looks like a score (numeric). The file has no header row.
     if (re.match(r'^[A-Z]\d+[A-Z*]$', first_col)
             and _looks_numeric(df.columns[1])):
-        return 'headerless'
+        return 'headerless', None
+
+    # --- Content-based fallback: scan actual values for variant patterns ---
+    sniffed_col, sniffed_fmt = _sniff_variant_column(df)
+    if sniffed_col is not None:
+        print(f"  Auto-detected variant column '{sniffed_col}' as {sniffed_fmt} format")
+        return sniffed_fmt, sniffed_col
 
     raise ValueError(
         f"Cannot detect format from columns: {list(df.columns)}\n"
@@ -157,9 +188,9 @@ def find_score_col(df, hint=None):
 #                              columns: Position (int), Amino_Acid (str), score (float)
 # ---------------------------------------------------------------------------
 
-def parse_hgvs(df, score_col):
+def parse_hgvs(df, score_col, var_col='hgvs_pro'):
     """
-    Parse MaveDB HGVS hgvs_pro notation: p.Met1Ala, p.Met1Ter …
+    Parse HGVS protein notation: p.Met1Ala, p.Met1Ter …
     Skips multi-mutant variants (brackets / semicolons).
     Collects wild-type scores from pure p.= and pure synonymous variants.
 
@@ -173,7 +204,7 @@ def parse_hgvs(df, score_col):
     wt_info = {'p_equals': [], 'synonymous': [], 'pos_to_ref': {}}
 
     for _, row in df.iterrows():
-        hgvs  = str(row['hgvs_pro']).strip()
+        hgvs  = str(row[var_col]).strip()
         score = row[score_col]
 
         # Multi-mutant: p.[Val2Asp;=] etc — skip entirely, NOT wild-type
@@ -230,15 +261,16 @@ def parse_hgvs(df, score_col):
     return pd.DataFrame(rows), wt_info
 
 
-def parse_simple(df, score_col):
+def parse_simple(df, score_col, var_col=None):
     """
     Parse simple 1-letter notation: M1A, M1*, M1=
-    Column may be named 'var', 'aa_substitutions', or 'Variant'.
+    Column may be named 'var', 'aa_substitutions', 'Variant', or auto-detected.
     Collects wild-type scores from WT rows, synonymous (M1=), and ref==alt (M1M).
 
     Returns (df_long, wt_info) — same structure as parse_hgvs.
     """
-    var_col = next(c for c in ('var', 'aa_substitutions', 'Variant') if c in df.columns)
+    if var_col is None:
+        var_col = next(c for c in ('var', 'aa_substitutions', 'Variant') if c in df.columns)
     rows = []
     n_wt = n_syn = n_invalid = 0
     wt_info = {'p_equals': [], 'synonymous': [], 'pos_to_ref': {}}
@@ -423,7 +455,7 @@ def to_vem(file_path, score_col_hint=None, wt_score_override=None):
     """Load any supported MAVE score file and return a VEM wide-matrix DataFrame."""
     sep = sniff_separator(file_path)
     df  = pd.read_csv(file_path, sep=sep)
-    fmt = detect_format(df)
+    fmt, var_col = detect_format(df)
     print(f"  Detected format : {fmt}")
 
     # --- Already wide (3-letter headers), just reorder columns and return ---
@@ -470,10 +502,10 @@ def to_vem(file_path, score_col_hint=None, wt_score_override=None):
     wt_info = {'p_equals': [], 'synonymous': [], 'pos_to_ref': {}}
 
     if fmt == 'hgvs':
-        df_long, wt_info = parse_hgvs(df, score_col)
+        df_long, wt_info = parse_hgvs(df, score_col, var_col=var_col or 'hgvs_pro')
 
     elif fmt == 'simple':
-        df_long, wt_info = parse_simple(df, score_col)
+        df_long, wt_info = parse_simple(df, score_col, var_col=var_col)
 
     vem = pivot_to_vem(df_long)
 

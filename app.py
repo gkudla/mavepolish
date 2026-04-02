@@ -313,7 +313,7 @@ def _process_file(text, filename):
     try:
         sep = sniff_separator(tmp_path)
         df = pd.read_csv(tmp_path, sep=sep)
-        fmt = detect_format(df)
+        fmt, _var_col = detect_format(df)
 
         score_options = []
         default_score = None
