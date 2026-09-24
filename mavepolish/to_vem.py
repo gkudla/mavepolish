@@ -355,24 +355,31 @@ def determine_wt_score(wt_info, wt_score_override=None):
 
     Priority:
       1. --wt_score override (if provided by user)
-      2. Median of p.= scores (if present in data)
-      3. Median of synonymous scores (if present in data)
+      2. Mean of p.= scores (if present in data)
+      3. Mean of synonymous scores (if present in data)
       4. None (leave diagonal as NaN, warn user)
+
+    Missing (NaN) scores are ignored.
     """
     if wt_score_override is not None:
         print(f"  WT score: {wt_score_override} (user-specified via --wt_score)")
         return wt_score_override
 
-    if wt_info['p_equals']:
-        wt_score = float(np.mean(wt_info['p_equals']))
-        n = len(wt_info['p_equals'])
-        print(f"  WT score: {wt_score:.6f} (mean of {n} p.= / WT barcode(s))")
+    p_equals   = [s for s in wt_info['p_equals'] if not np.isnan(s)]
+    synonymous = [s for s in wt_info['synonymous'] if not np.isnan(s)]
+
+    if p_equals:
+        wt_score = float(np.mean(p_equals))
+        n, n_na = len(p_equals), len(wt_info['p_equals']) - len(p_equals)
+        na_note = f", {n_na} with missing score ignored" if n_na else ""
+        print(f"  WT score: {wt_score:.6f} (mean of {n} p.= / WT barcode(s){na_note})")
         return wt_score
 
-    if wt_info['synonymous']:
-        wt_score = float(np.mean(wt_info['synonymous']))
-        n = len(wt_info['synonymous'])
-        print(f"  WT score: {wt_score:.6f} (mean of {n} synonymous variant(s))")
+    if synonymous:
+        wt_score = float(np.mean(synonymous))
+        n, n_na = len(synonymous), len(wt_info['synonymous']) - len(synonymous)
+        na_note = f", {n_na} with missing score ignored" if n_na else ""
+        print(f"  WT score: {wt_score:.6f} (mean of {n} synonymous variant(s){na_note})")
         return wt_score
 
     print("  WARNING: No wild-type scores found in data. Diagonal will remain NaN.")
