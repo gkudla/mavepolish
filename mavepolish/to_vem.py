@@ -7,7 +7,7 @@ Supported input formats
 -----------------------
 1. VEM.tsv          Wide matrix (Position x amino acid, 3-letter headers) -- passed through unchanged
 2. MaveDB CSV/TSV   hgvs_pro column with HGVS protein notation (p.Met1Ala, p.Met1Ter ...)
-3. Simple 1-letter  Variant/var/aa_substitutions column, 1-letter codes (M1A, M1*, M1=)
+3. Simple 1-letter  Variant/variant/var/aa_substitutions column, 1-letter codes (M1A, M1*, M1=)
 4. Wide 1-letter    Wide matrix with 1-letter AA column headers;
                     extra columns (wt_aa, median_score, mean_score ...) are ignored
 5. Headerless       No header; first column looks like a variant (E2C), second is numeric
@@ -102,7 +102,7 @@ def detect_format(df):
       vem_wide         — Position + only 3-letter AA column names
       vem_wide_1letter — position (case-insensitive) + 1-letter AA column names
       hgvs             — hgvs_pro column, or any column with HGVS values
-      simple           — var/aa_substitutions/Variant, or any column with X###Y values
+      simple           — var/aa_substitutions/Variant/variant, or any column with X###Y values
       headerless       — no header; col 1 looks like variant (E2C), col 2 numeric
     """
     cols = set(df.columns)
@@ -124,7 +124,7 @@ def detect_format(df):
         return 'hgvs', 'hgvs_pro'
 
     # Simple 1-letter notation — known column names
-    if 'var' in cols or 'aa_substitutions' in cols or 'Variant' in cols:
+    if 'var' in cols or 'aa_substitutions' in cols or 'Variant' in cols or 'variant' in cols:
         return 'simple', None
 
     # Headerless file — first "column name" looks like a variant (e.g. E2C, M1A),
@@ -142,7 +142,7 @@ def detect_format(df):
     raise ValueError(
         f"Cannot detect format from columns: {list(df.columns)}\n"
         "Expected one of: Position + AA headers, hgvs_pro, "
-        "var/aa_substitutions/Variant, "
+        "var/aa_substitutions/Variant/variant, "
         "or wide matrix with 1-letter AA headers."
     )
 
@@ -154,7 +154,7 @@ def detect_format(df):
 # Columns that are never score columns
 _NON_SCORE_COLS = {
     'Position', 'accession', 'hgvs_pro', 'hgvs_nt', 'hgvs_splice',
-    'var', 'aa_substitutions', 'Variant', 'WT',
+    'var', 'aa_substitutions', 'Variant', 'variant', 'WT', 'position', 'wt_aa',
 }
 
 def find_score_col(df, hint=None):
@@ -264,13 +264,13 @@ def parse_hgvs(df, score_col, var_col='hgvs_pro'):
 def parse_simple(df, score_col, var_col=None):
     """
     Parse simple 1-letter notation: M1A, M1*, M1=
-    Column may be named 'var', 'aa_substitutions', 'Variant', or auto-detected.
+    Column may be named 'var', 'aa_substitutions', 'Variant', 'variant', or auto-detected.
     Collects wild-type scores from WT rows, synonymous (M1=), and ref==alt (M1M).
 
     Returns (df_long, wt_info) — same structure as parse_hgvs.
     """
     if var_col is None:
-        var_col = next(c for c in ('var', 'aa_substitutions', 'Variant') if c in df.columns)
+        var_col = next(c for c in ('var', 'aa_substitutions', 'Variant', 'variant') if c in df.columns)
     rows = []
     n_wt = n_syn = n_invalid = 0
     wt_info = {'p_equals': [], 'synonymous': [], 'pos_to_ref': {}}

@@ -321,7 +321,7 @@ def _process_file(text, filename):
         if fmt not in ('headerless', 'vem_wide', 'vem_wide_1letter'):
             _NON_SCORE = {
                 'Position', 'accession', 'hgvs_pro', 'hgvs_nt', 'hgvs_splice',
-                'var', 'aa_substitutions', 'Variant', 'WT', 'position', 'wt_aa',
+                'var', 'aa_substitutions', 'Variant', 'variant', 'WT', 'position', 'wt_aa',
             }
             numeric_cols = [
                 c for c in df.columns
